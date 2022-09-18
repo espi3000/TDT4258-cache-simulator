@@ -4,6 +4,26 @@
 #include <stdlib.h>
 #include <string.h>
 
+/**
+ * TODO: Will use strtok() instead of strsep() if possible.
+ * @brief Slices a string. strsep() is not standard C. This is Chris Dodd's implementation. Source:
+ *        https://stackoverflow.com/questions/58244300/getting-the-error-undefined-reference-to-strsep-with-clang-and-mingw
+ * @param stringp address of string
+ * @param delim separator character
+ * @return address of first string
+ */
+char* strsep(char** stringp, const char* delim) {
+    char* rv = *stringp;
+    if (rv) {
+        *stringp += strcspn(*stringp, delim);
+        if (**stringp)
+            *(*stringp)++ = '\0';
+        else
+            *stringp = 0; 
+    }
+    return rv;
+}
+
 typedef enum {dm, fa} cache_map_t;
 typedef enum {uc, sc} cache_org_t;
 typedef enum {instruction, data} access_t;
@@ -31,7 +51,8 @@ cache_org_t cache_org;
 // USE THIS FOR YOUR CACHE STATISTICS
 cache_stat_t cache_statistics;
 
-/* Reads a memory access from the trace file and returns
+/* 
+ * Reads a memory access from the trace file and returns
  * 1) access type (instruction or data access
  * 2) memory address
  */
@@ -60,7 +81,8 @@ mem_access_t read_transaction(FILE* ptr_file) {
         return access;
     }
 
-    /* If there are no more entries in the file,
+    /* 
+     * If there are no more entries in the file,
      * return an address 0 that will terminate the infinite loop in main
      */
     access.address = 0;
@@ -71,15 +93,17 @@ void main(int argc, char** argv) {
     // Reset statistics:
     memset(&cache_statistics, 0, sizeof(cache_stat_t));
 
-    /* Read command-line parameters and initialize:
+    /* 
+     * Read command-line parameters and initialize:
      * cache_size, cache_mapping and cache_org variables
      */
-    /* IMPORTANT: *IF* YOU ADD COMMAND LINE PARAMETERS (you really don't need to),
+    /* 
+     * IMPORTANT: *IF* YOU ADD COMMAND LINE PARAMETERS (you really don't need to),
      * MAKE SURE TO ADD THEM IN THE END AND CHOOSE SENSIBLE DEFAULTS SUCH THAT WE
      * CAN RUN THE RESULTING BINARY WITHOUT HAVING TO SUPPLY MORE PARAMETERS THAN
      * SPECIFIED IN THE UNMODIFIED FILE (cache_size, cache_mapping and cache_org)
      */
-    if (argc != 4) { /* argc should be 2 for correct execution */
+    if (argc != 4) { /* argc should be 4 for correct execution */
         printf(
             "Usage: ./cache_sim [cache size: 128-4096] [cache mapping: dm|fa] "
             "[cache organization: uc|sc]\n");
@@ -111,9 +135,26 @@ void main(int argc, char** argv) {
         }
     }
 
+    /**
+     * addr_size:   32 b
+     * block_size:  64 B
+     * block_bits:  6 b
+     * num_blocks:  cache_size/blocks
+     * index_bits:  log_2(num_blocks)
+     */
+    uint8_t num_blocks = cache_size/64; // Blocks are 64B
+    uint8_t num_index_bits = 0;
+    for (; num_blocks > 1; num_index_bits++) num_blocks >>= 1; // Calculates log2 of 2^integer
+    uint8_t num_offset_bits = 6;
+    uint8_t num_tag_bits = 32 - num_offset_bits - num_index_bits; // 32 b addr, 6 b offset (64 B blocks)
+
+    uint32_t tag_mask = (0xffffffff<<num_tag_bits);
+    uint32_t index_mask = (0xffffffff<<num_offset_bits) & ~tag_mask;
+    uint32_t offset_mask = ~(tag_mask | index_mask);
+
     /* Open the file mem_trace.txt to read memory accesses */
     FILE* ptr_file;
-    ptr_file = fopen("mem_trace.txt", "r");
+    ptr_file = fopen("mem_trace1.txt", "r");
     if (!ptr_file) {
         printf("Unable to open the trace file\n");
         exit(1);
@@ -128,6 +169,7 @@ void main(int argc, char** argv) {
         printf("%d %x\n", access.accesstype, access.address);
         /* Do a cache access */
         // ADD YOUR CODE HERE
+
     }
 
     /* Print the statistics */
