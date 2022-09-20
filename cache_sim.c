@@ -4,25 +4,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-/**
- * TODO: Will use strtok() instead of strsep() if possible.
- * @brief Slices a string. strsep() is not standard C. This is Chris Dodd's implementation. Source:
- *        https://stackoverflow.com/questions/58244300/getting-the-error-undefined-reference-to-strsep-with-clang-and-mingw
- * @param stringp address of string
- * @param delim separator character
- * @return address of first string
- */
-char* strsep(char** stringp, const char* delim) {
-    char* rv = *stringp;
-    if (rv) {
-        *stringp += strcspn(*stringp, delim);
-        if (**stringp)
-            *(*stringp)++ = '\0';
-        else
-            *stringp = 0; 
-    }
-    return rv;
-}
+//#define get_tag_mask(num_tag_bits)                  (0xffffffff << (32 - num_tag_bits))
+//#define get_index_mask(num_offset_bits, tag_mask)   ((0xffffffff << num_offset_bits) & ~tag_mask)
+//#define get_offset_mask(tag_mask, index_mask)       (~(tag_mask | index_mask))
 
 typedef enum {dm, fa} cache_map_t;
 typedef enum {uc, sc} cache_org_t;
@@ -42,7 +26,6 @@ typedef struct {
 } cache_stat_t;
 
 // DECLARE CACHES AND COUNTERS FOR THE STATS HERE
-
 uint32_t cache_size;
 uint32_t block_size = 64;
 cache_map_t cache_mapping;
@@ -50,6 +33,27 @@ cache_org_t cache_org;
 
 // USE THIS FOR YOUR CACHE STATISTICS
 cache_stat_t cache_statistics;
+
+
+/**
+ * TODO: Will use strtok() instead of strsep() if possible.
+ * @brief Slices a string. strsep() is not standard C. This is Chris Dodd's implementation. Source:
+ *        https://stackoverflow.com/questions/58244300/getting-the-error-undefined-reference-to-strsep-with-clang-and-mingw
+ * @param stringp address of string
+ * @param delim separator character
+ * @return address of first string
+ */
+char* strsep(char** stringp, const char* delim) {
+    char* rv = *stringp;
+    if (rv) {
+        *stringp += strcspn(*stringp, delim);
+        if (**stringp)
+            *(*stringp)++ = '\0';
+        else
+            *stringp = 0; 
+    }
+    return rv;
+}
 
 /* 
  * Reads a memory access from the trace file and returns
@@ -76,8 +80,8 @@ mem_access_t read_transaction(FILE* ptr_file) {
 
         /* Get the access type */
         token = strsep(&string, " \n");
-        access.address = (uint32_t)strtol(token, NULL, 16);
-
+        sscanf(token, "%x", &access.address);
+        // access.address = (uint32_t)strtol(token, NULL, 16); // NOTE: This is not working for some reason.
         return access;
     }
 
@@ -135,22 +139,33 @@ void main(int argc, char** argv) {
         }
     }
 
-    /**
-     * addr_size:   32 b
-     * block_size:  64 B
-     * block_bits:  6 b
-     * num_blocks:  cache_size/blocks
-     * index_bits:  log_2(num_blocks)
-     */
+    // ============================================================
+    // ============================================================
     uint8_t num_blocks = cache_size/64; // Blocks are 64B
     uint8_t num_index_bits = 0;
     for (; num_blocks > 1; num_index_bits++) num_blocks >>= 1; // Calculates log2 of 2^integer
     uint8_t num_offset_bits = 6;
     uint8_t num_tag_bits = 32 - num_offset_bits - num_index_bits; // 32 b addr, 6 b offset (64 B blocks)
 
-    uint32_t tag_mask = (0xffffffff<<num_tag_bits);
-    uint32_t index_mask = (0xffffffff<<num_offset_bits) & ~tag_mask;
+    uint32_t tag_mask = (0xffffffff << (32 - num_tag_bits));
+    uint32_t index_mask = (0xffffffff << num_offset_bits) & ~tag_mask;
     uint32_t offset_mask = ~(tag_mask | index_mask);
+
+    typedef struct {
+        uint32_t tag;
+        uint8_t valid;
+        //uint8_t dirty;
+        //uint8_t lru;
+    } block_t;
+
+    typedef struct {
+        block_t blocks[num_blocks];
+    } cache_t;
+
+    cache_t cache;
+    memset(&cache, 0, sizeof(cache_t));
+    // ============================================================
+    // ============================================================
 
     /* Open the file mem_trace.txt to read memory accesses */
     FILE* ptr_file;
@@ -160,16 +175,31 @@ void main(int argc, char** argv) {
         exit(1);
     }
 
-    /* Loop until whole trace file has been read */
     mem_access_t access;
-    while (1) {
+    while (1) { // Loop until whole trace file has been read
         access = read_transaction(ptr_file);
-        // If no transactions left, break out of loop
-        if (access.address == 0) break;
+        cache_statistics.accesses++;
+        if (access.address == 0) break; // If no transactions left, break out of loop
         printf("%d %x\n", access.accesstype, access.address);
         /* Do a cache access */
-        // ADD YOUR CODE HERE
 
+        switch (cache_mapping) {
+        case dm:
+            uint8_t index = (access.address & index_mask) >> num_offset_bits;
+            uint8_t tag = (access.address & tag_mask) >> (num_offset_bits + num_index_bits);
+            if (cache.blocks[index].valid == 0) {
+                cache.blocks[index].tag = tag;
+                cache.blocks[index].valid = 1;
+            } else if (cache.blocks[index].tag == tag) {
+                cache_statistics.hits++;
+            } else {
+                cache.blocks[index].tag = tag;
+            }
+            break;
+        case fa:
+            /* code */
+            break;
+        }
     }
 
     /* Print the statistics */
