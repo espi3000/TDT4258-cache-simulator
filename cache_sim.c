@@ -61,30 +61,16 @@ char* strsep(char** stringp, const char* delim) {
  * 2) memory address
  */
 mem_access_t read_transaction(FILE* ptr_file) {
-    char buf[1000];
-    char* token;
-    char* string = buf;
+    char type;
     mem_access_t access;
-
-    if (fgets(buf, 1000, ptr_file) != NULL) {
-        /* Get the access type */
-        token = strsep(&string, " \n");
-        if (strcmp(token, "I") == 0) {
-            access.accesstype = instruction;
-        } else if (strcmp(token, "D") == 0) {
-            access.accesstype = data;
-        } else {
+    if (fscanf(ptr_file, "%c %x\n", &type, &access.address) == 2) {
+        if (type != 'I' && type != 'D') {
             printf("Unkown access type\n");
             exit(0);
         }
-
-        /* Get the access type */
-        token = strsep(&string, " \n");
-        sscanf(token, "%x", &access.address);
-        // access.address = (uint32_t)strtol(token, NULL, 16); // NOTE: This is not working for some reason.
+        access.accesstype = (type == 'I') ? instruction : data;
         return access;
     }
-
     /* 
      * If there are no more entries in the file,
      * return an address 0 that will terminate the infinite loop in main
@@ -183,10 +169,12 @@ void main(int argc, char** argv) {
         printf("%d %x\n", access.accesstype, access.address);
         /* Do a cache access */
 
+        uint8_t index;
+        uint8_t tag;
         switch (cache_mapping) {
         case dm:
-            uint8_t index = (access.address & index_mask) >> num_offset_bits;
-            uint8_t tag = (access.address & tag_mask) >> (num_offset_bits + num_index_bits);
+            index = (access.address & index_mask) >> num_offset_bits;
+            tag = (access.address & tag_mask) >> (num_offset_bits + num_index_bits);
             if (cache.blocks[index].valid == 0) {
                 cache.blocks[index].tag = tag;
                 cache.blocks[index].valid = 1;
@@ -197,7 +185,20 @@ void main(int argc, char** argv) {
             }
             break;
         case fa:
-            /* code */
+            tag = (access.address & (tag_mask | index_mask)) >> num_offset_bits;
+            for (uint8_t i = 0; i < num_blocks; i++) {
+                if (cache.blocks[i].valid == 0) {
+                    cache.blocks[i].tag = tag;
+                    cache.blocks[i].valid = 1;
+                    break;
+                } else if (cache.blocks[i].tag == tag) {
+                    cache_statistics.hits++;
+                    break;
+                } else {
+                    cache.blocks[i].tag = tag;
+                    break;
+                }
+            }
             break;
         }
     }
